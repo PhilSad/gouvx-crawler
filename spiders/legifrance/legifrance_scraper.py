@@ -1,10 +1,11 @@
 from typing import Any
 import scrapy
 import unicodedata
+import logging
 
 from scrapy.http import Response
 
-class LegifranceScraper(scrapy.Spider):
+class LegifranceScrapper(scrapy.Spider):
     name = 'blogspider'
     start_urls = [
         "https://www.legifrance.gouv.fr/liste/code?etatTexte=VIGUEUR"
@@ -13,7 +14,7 @@ class LegifranceScraper(scrapy.Spider):
     custom_settings = {
         'USER_AGENT': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
         'FEED_EXPORT_ENCODING' : 'utf-8',
-        'DOWNLOAD_DELAY': 0.1,
+        'DOWNLOAD_DELAY': 0.25,
     }
 
     def parse(self, response):
@@ -23,7 +24,12 @@ class LegifranceScraper(scrapy.Spider):
             yield scrapy.Request(response.urljoin(link), callback=self.parse_code)
     
     def parse_code(self, response):
-        first_bloc = response.xpath("//a[@class='articleLink' and not(@class='abrogated')]")[0]
+        try:
+            first_bloc = response.xpath("//a[@class='articleLink' and not(@class='abrogated')]")[0]
+        except:
+            logging.error("No articleLink found in page: " + response.url)
+            logging.error(response.body)
+            return
         link = first_bloc.xpath("@href").get()
         yield scrapy.Request(response.urljoin(link), callback=self.parse_element)
     
@@ -40,8 +46,13 @@ class LegifranceScraper(scrapy.Spider):
             article_content = article.css('.content:not(.content-abrogated)').css('::text').getall()
             article_content = ''.join(article_content)
             
+            # if abrogated law, skip
             if article_content == "":
                 continue
+            
+            # article  
+            article_url = "https://www.legifrance.gouv.fr" + article_url
+
             
             # print("saved data: ", article_ref, article_content)
             
@@ -58,7 +69,7 @@ class LegifranceScraper(scrapy.Spider):
             
         
         suivant_url = response.css('#urlNextSection::attr(href)').get()
-        suivant_url = "https://www.legifrance.gouv.fr" + suivant_url
         
-        if suivant_url:
+        if suivant_url is not None:
+            suivant_url = "https://www.legifrance.gouv.fr" + suivant_url
             yield scrapy.Request(response.urljoin(suivant_url), callback=self.parse_element)
